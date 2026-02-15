@@ -8,6 +8,9 @@
   python -m revolution sync
   python -m revolution status
   python -m revolution run
+  python -m revolution propose
+  python -m revolution schedule start|stop|status|register
+  python -m revolution plugin list|init|remove
 """
 
 import argparse
@@ -40,7 +43,7 @@ def _print_line():
     print("=" * 50)
 
 
-# -- 명령어 핸들러 --
+# -- 기존 명령어 핸들러 --
 
 def cmd_capture(args):
     """Lesson 캡처."""
@@ -179,6 +182,24 @@ def cmd_status(args):
         for c, n in sorted(cats.items()):
             print(f"    {c}: {n}개")
 
+    # 스케줄러 상태
+    from .scheduler import get_status as sched_status
+    sched = sched_status()
+    print()
+    print(f"  스케줄러: {'실행 중' if sched['running'] else '중지'}")
+    if sched["running"]:
+        print(f"    PID: {sched['pid']}")
+    print(f"    총 실행: {sched['total_runs']}회")
+    print(f"    성공률: {sched['success_rate']}")
+
+    # 플러그인 상태
+    from .plugins import discover_plugins
+    plugins = discover_plugins()
+    print()
+    print(f"  플러그인: {len(plugins)}개")
+    for p in plugins:
+        print(f"    - {p['name']}: {p.get('description', '')}")
+
 
 def cmd_run(args):
     """전체 파이프라인 한 번에 실행.
@@ -233,6 +254,205 @@ def cmd_run(args):
     _print_line()
 
 
+# -- 신규 명령어: propose --
+
+def cmd_propose(args):
+    """미적용 Lesson에 대한 여러 방안을 제시.
+
+    사용자가 1,2,3,4와 같이 번호로 선택할 수 있도록 출력한다.
+    """
+    results = analyze_all(_lessons_dir())
+    summary = get_analysis_summary(results)
+
+    _print_line()
+    print("  RevolutionAgent 방안 제시")
+    _print_line()
+
+    if summary["total_pending"] == 0:
+        print("  미적용 Lesson이 없습니다.")
+        print()
+        print("  대안 방안:")
+        print("    1. 새 Lesson 캡처 (capture)")
+        print("    2. 다른 환경 동기화 (sync)")
+        print("    3. 스케줄러 시작 (schedule start)")
+        print("    4. 종료")
+        print()
+        try:
+            choice = input("  선택 (1-4): ").strip()
+            _handle_propose_choice(choice, has_lessons=False)
+        except (EOFError, KeyboardInterrupt):
+            pass
+        return
+
+    print(f"\n  미적용 Lesson {summary['total_pending']}개에 대한 처리 방안:\n")
+    print("    1. 전체 자동 적용 (apply --auto)")
+    print("       모든 미적용 Lesson을 승인 없이 규칙/스킬에 패치합니다.")
+    print()
+    print("    2. 개별 승인 적용 (apply)")
+    print("       각 Lesson별로 적용 여부를 확인합니다.")
+    print()
+    print("    3. 분석만 수행 (analyze)")
+    print("       적용 대상 파일과 분배를 확인합니다.")
+    print()
+    print("    4. 전체 파이프라인 (run)")
+    print("       sync -> analyze -> apply -> sync 전체를 실행합니다.")
+    print()
+
+    try:
+        choice = input("  선택 (1-4): ").strip()
+        _handle_propose_choice(choice, has_lessons=True)
+    except (EOFError, KeyboardInterrupt):
+        pass
+
+
+def _handle_propose_choice(choice: str, has_lessons: bool) -> None:
+    """propose 선택 처리."""
+    if not has_lessons:
+        if choice == "1":
+            print("\n  --> 'python -m revolution capture -e \"에러\" -s \"해결\" -c \"카테고리\"'")
+        elif choice == "2":
+            print("\n  동기화 실행 중...")
+            cmd_sync(argparse.Namespace())
+        elif choice == "3":
+            print("\n  스케줄러 시작 중...")
+            cmd_schedule(argparse.Namespace(
+                schedule_command="start", interval=6, foreground=False
+            ))
+        return
+
+    if choice == "1":
+        print("\n  자동 적용 실행 중...")
+        cmd_apply(argparse.Namespace(auto=True))
+    elif choice == "2":
+        print("\n  개별 승인 적용 시작...")
+        cmd_apply(argparse.Namespace(auto=False))
+    elif choice == "3":
+        print("\n  분석 실행 중...")
+        cmd_analyze(argparse.Namespace())
+    elif choice == "4":
+        print("\n  전체 파이프라인 실행 중...")
+        cmd_run(argparse.Namespace(auto=False))
+
+
+# -- 신규 명령어: schedule --
+
+def cmd_schedule(args):
+    """스케줄러 관리."""
+    from .scheduler import (
+        start_loop, start_background, stop,
+        get_status, run_once, generate_register_script,
+    )
+
+    sub = getattr(args, "schedule_command", None)
+    if not sub:
+        print("  사용법: python -m revolution schedule start|stop|status|register|run-once")
+        return
+
+    if sub == "start":
+        interval = getattr(args, "interval", 6)
+        fg = getattr(args, "foreground", False)
+
+        if fg:
+            start_loop(interval)
+        else:
+            _print_line()
+            print("  스케줄러 시작")
+            _print_line()
+            result = start_background(interval)
+            print(f"  {result['message']}")
+
+    elif sub == "stop":
+        _print_line()
+        print("  스케줄러 중지")
+        _print_line()
+        result = stop()
+        print(f"  {result['message']}")
+
+    elif sub == "status":
+        _print_line()
+        print("  스케줄러 상태")
+        _print_line()
+        stat = get_status()
+        print(f"  실행 중: {'예' if stat['running'] else '아니오'}")
+        if stat["pid"]:
+            print(f"  PID: {stat['pid']}")
+        print(f"  총 실행: {stat['total_runs']}회")
+        print(f"  성공률: {stat['success_rate']}")
+        if stat["last_run"]:
+            lr = stat["last_run"]
+            print(f"  마지막 실행: {lr.get('timestamp', '?')}")
+            print(f"    결과: {'성공' if lr.get('success') else '실패'}")
+
+    elif sub == "register":
+        _print_line()
+        print("  시스템 스케줄러 등록")
+        _print_line()
+        script = generate_register_script()
+        print(f"\n  아래 명령을 실행하여 시스템에 등록하세요:\n")
+        print(f"  {script}\n")
+
+    elif sub == "run-once":
+        _print_line()
+        print("  스케줄러 1회 실행")
+        _print_line()
+        entry = run_once()
+        status = "성공" if entry["success"] else "실패"
+        print(f"  결과: {status}")
+        print(f"  시간: {entry['timestamp']}")
+
+
+# -- 신규 명령어: plugin --
+
+def cmd_plugin(args):
+    """플러그인 관리."""
+    from .plugins import (
+        discover_plugins, list_plugins_formatted,
+        create_sample_plugin, ensure_plugins_dir,
+    )
+
+    sub = getattr(args, "plugin_command", None)
+    if not sub:
+        print("  사용법: python -m revolution plugin list|init|remove")
+        return
+
+    if sub == "list":
+        _print_line()
+        print("  플러그인 목록")
+        _print_line()
+        print(list_plugins_formatted())
+
+    elif sub == "init":
+        _print_line()
+        print("  플러그인 초기화")
+        _print_line()
+        ensure_plugins_dir()
+        sample = create_sample_plugin()
+        print(f"  plugins/ 디렉토리 생성 완료")
+        print(f"  샘플 플러그인: {sample.name}")
+        print(f"  이 파일을 참고하여 새 플러그인을 만드세요.")
+
+    elif sub == "remove":
+        name = getattr(args, "name", None)
+        if not name:
+            print("  플러그인 이름을 지정하세요: --name <이름>")
+            return
+
+        _print_line()
+        print(f"  플러그인 제거: {name}")
+        _print_line()
+
+        plugins_dir = ensure_plugins_dir()
+        target = plugins_dir / f"{name}.py"
+        if target.exists():
+            target.unlink()
+            print(f"  {name}.py 삭제 완료")
+        else:
+            print(f"  {name}.py 파일을 찾을 수 없습니다.")
+
+
+# ============================================================
+# Main
+# ============================================================
 def main():
     parser = argparse.ArgumentParser(
         description="RevolutionAgent - Agent 기술 자가 진화 시스템",
@@ -246,6 +466,9 @@ commands:
   sync      양방향 Git 동기화
   status    전체 상태 요약
   run       전체 파이프라인 실행 (sync->analyze->apply->sync)
+  propose   방안 제시 (1,2,3,4 선택)
+  schedule  스케줄러 관리 (start|stop|status|register|run-once)
+  plugin    플러그인 관리 (list|init|remove)
 
 categories:
   """ + "\n  ".join(VALID_CATEGORIES),
@@ -271,6 +494,31 @@ categories:
     run_p = sub.add_parser("run", help="전체 파이프라인 실행")
     run_p.add_argument("--auto", action="store_true", help="승인 없이 자동 적용")
 
+    sub.add_parser("propose", help="방안 제시 (1,2,3,4 선택)")
+
+    # schedule
+    sched_p = sub.add_parser("schedule", help="스케줄러 관리")
+    sched_sub = sched_p.add_subparsers(dest="schedule_command")
+    sched_start = sched_sub.add_parser("start", help="스케줄러 시작")
+    sched_start.add_argument(
+        "--interval", type=float, default=6, help="실행 간격 (시간, 기본 6)"
+    )
+    sched_start.add_argument(
+        "--foreground", action="store_true", help="포그라운드에서 실행"
+    )
+    sched_sub.add_parser("stop", help="스케줄러 중지")
+    sched_sub.add_parser("status", help="스케줄러 상태")
+    sched_sub.add_parser("register", help="시스템 스케줄러 등록 스크립트")
+    sched_sub.add_parser("run-once", help="1회 실행")
+
+    # plugin
+    plug_p = sub.add_parser("plugin", help="플러그인 관리")
+    plug_sub = plug_p.add_subparsers(dest="plugin_command")
+    plug_sub.add_parser("list", help="플러그인 목록")
+    plug_sub.add_parser("init", help="플러그인 디렉토리 + 샘플 생성")
+    plug_rm = plug_sub.add_parser("remove", help="플러그인 제거")
+    plug_rm.add_argument("--name", required=True, help="제거할 플러그인 이름")
+
     args = parser.parse_args()
     if not args.command:
         parser.print_help()
@@ -284,6 +532,9 @@ categories:
         "sync": cmd_sync,
         "status": cmd_status,
         "run": cmd_run,
+        "propose": cmd_propose,
+        "schedule": cmd_schedule,
+        "plugin": cmd_plugin,
     }
     handlers[args.command](args)
 
