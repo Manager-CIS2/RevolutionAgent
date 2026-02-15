@@ -1,0 +1,7 @@
+{
+    "name": "RevolutionAgent",
+    "type": "sub",
+    "parent": "1.AgentDev",
+    "description": "Agent 기술 자가 진화 시스템",
+    "tech": "Python CLI"
+}

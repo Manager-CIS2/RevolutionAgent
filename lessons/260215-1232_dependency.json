@@ -1,0 +1,17 @@
+{
+  "id": "260215-1232_dependency",
+  "error": "ModuleNotFoundError: No module named 'requests'",
+  "solution": "pip install requests로 설치하거나 requirements.txt에 추가",
+  "category": "python/dependency",
+  "tags": [
+    "pip",
+    "import",
+    "requests"
+  ],
+  "target_rule": "rules/coding_guide.md",
+  "target_skill": null,
+  "applied": true,
+  "applied_at": "2026-02-15T03:33:04.451867+00:00",
+  "source_env": "Windows:318Main-X399",
+  "created_at": "2026-02-15T03:32:28.320675+00:00"
+}
