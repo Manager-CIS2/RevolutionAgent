@@ -140,12 +140,40 @@ def mark_applied(lesson: dict) -> None:
     )
 
 
-def apply_all(lessons_dir: Path = None, gemini_dir: Path = None) -> list:
+def _prompt_approve(lesson: dict, analysis: dict) -> bool:
+    """사용자에게 Lesson 적용 승인을 요청한다.
+
+    Args:
+        lesson: Lesson dict.
+        analysis: 분석 결과 dict.
+
+    Returns:
+        승인 여부.
+    """
+    print(f"\n  --- Lesson 적용 승인 요청 ---")
+    print(f"  ID: {lesson['id']}")
+    print(f"  카테고리: {lesson['category']}")
+    print(f"  에러: {lesson['error'][:80]}")
+    print(f"  해결: {lesson['solution'][:80]}")
+    print(f"  대상: {analysis['target']}")
+    try:
+        answer = input("  적용할까요? (y/n): ").strip().lower()
+        return answer in ("y", "yes")
+    except (EOFError, KeyboardInterrupt):
+        return False
+
+
+def apply_all(
+    lessons_dir: Path = None,
+    gemini_dir: Path = None,
+    auto_approve: bool = False,
+) -> list:
     """모든 미적용 Lesson을 적용한다.
 
     Args:
         lessons_dir: lessons/ 디렉토리 경로.
         gemini_dir: ~/.gemini/antigravity/ 경로.
+        auto_approve: True면 사용자 확인 없이 자동 적용.
 
     Returns:
         적용 결과 목록.
@@ -162,6 +190,16 @@ def apply_all(lessons_dir: Path = None, gemini_dir: Path = None) -> list:
                 "reason": "수동 처리 필요",
             })
             continue
+
+        # 사용자 승인 절차
+        if not auto_approve:
+            if not _prompt_approve(lesson, analysis):
+                results.append({
+                    "id": lesson["id"],
+                    "success": False,
+                    "reason": "사용자가 거부함",
+                })
+                continue
 
         result = apply_lesson(lesson, gemini_dir)
         if result["success"]:

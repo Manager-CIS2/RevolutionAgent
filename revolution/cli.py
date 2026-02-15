@@ -108,8 +108,9 @@ def cmd_analyze(args):
 
 
 def cmd_apply(args):
-    """Lesson 적용."""
-    results = apply_all(_lessons_dir())
+    """Lesson 적용 (사용자 승인 후)."""
+    auto = getattr(args, 'auto', False)
+    results = apply_all(_lessons_dir(), auto_approve=auto)
 
     _print_line()
     print("  Lesson 적용 결과")
@@ -209,9 +210,10 @@ def cmd_run(args):
         print("    적용할 Lesson이 없습니다.")
         return
 
-    # 3. Apply
+    # 3. Apply (사용자 승인)
     print("\n  [3/4] Apply (규칙/스킬에 패치 적용)...")
-    apply_results = apply_all(_lessons_dir())
+    auto = getattr(args, 'auto', False)
+    apply_results = apply_all(_lessons_dir(), auto_approve=auto)
     success = [r for r in apply_results if r.get("success")]
     failed = [r for r in apply_results if not r.get("success")]
     print(f"    성공: {len(success)}개, 실패: {len(failed)}개")
@@ -259,10 +261,15 @@ categories:
 
     sub.add_parser("list", help="미적용 Lesson 목록")
     sub.add_parser("analyze", help="Lesson 분석")
-    sub.add_parser("apply", help="Lesson 적용")
+
+    apply_p = sub.add_parser("apply", help="Lesson 적용 (사용자 승인)")
+    apply_p.add_argument("--auto", action="store_true", help="승인 없이 자동 적용")
+
     sub.add_parser("sync", help="양방향 동기화")
     sub.add_parser("status", help="전체 상태")
-    sub.add_parser("run", help="전체 파이프라인 실행")
+
+    run_p = sub.add_parser("run", help="전체 파이프라인 실행")
+    run_p.add_argument("--auto", action="store_true", help="승인 없이 자동 적용")
 
     args = parser.parse_args()
     if not args.command:

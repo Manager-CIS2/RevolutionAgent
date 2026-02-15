@@ -3,5 +3,6 @@
     "type": "sub",
     "parent": "1.AgentDev",
     "description": "Agent 기술 자가 진화 시스템",
+    "github": "Manager-CIS2/RevolutionAgent",
     "tech": "Python CLI"
 }
